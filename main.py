@@ -3,10 +3,30 @@ from motpy import Detection, MultiObjectTracker
 import torch
 import serial
 import time
+import firebase_admin
+from firebase_admin import credentials, db
 
-# Open serial connection once
+
+# Open serial connection between arduino and python
 arduino = serial.Serial('COM7', 9600, timeout=1)
 time.sleep(2)  # Allow time for the connection to establish
+
+# Firebase setup
+cred = credentials.Certificate("serviceAccountKey.json")  # Replace with your Firebase key file
+firebase_admin.initialize_app(cred, {
+    'databaseURL': "https://your-database-name.firebaseio.com/"  # Replace with your database URL
+})
+
+def send_to_firebase(voltage, current, power, energy):
+    ref = db.reference("sensor_data")  # Firebase database reference
+    data = {
+        "voltage": voltage,
+        "current": current,
+        "power": power,
+        "energy": energy,
+        "timestamp": time.time()  # Store the timestamp
+    }
+    ref.push(data)  # Push data to Firebase
 
 def draw_boxes(frame, track_results):
     global arduino
@@ -14,6 +34,22 @@ def draw_boxes(frame, track_results):
 
     # Send count as a string followed by a newline
     arduino.write(f"{cnt}\n".encode())
+    response = arduino.readline().decode('utf-8').strip()
+
+    if response:
+        try:
+            # Split received data
+            values = response.split('|')
+            if len(values) == 4:
+                voltage = float(values[0])
+                current = float(values[1])
+                power = float(values[2])
+                energy = float(values[3])
+                # Print received data
+                print(f"Voltage: {voltage} V, Current: {current} A, Power: {power} W, Energy: {energy} kWh")
+                send_to_firebase(voltage, current, power, energy)
+        except ValueError:
+            print("Invalid data received from Arduino")
 
     # Draw bounding boxes
     for obj in track_results:
